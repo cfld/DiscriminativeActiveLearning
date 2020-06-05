@@ -23,15 +23,12 @@ def parse_input():
     p.add_argument('method', type=str,
                    choices={'Random','CoreSet','CoreSetMIP','Discriminative','DiscriminativeLearned','DiscriminativeAE','DiscriminativeStochastic','Uncertainty','Bayesian','UncertaintyEntropy','BayesianEntropy','EGL','Adversarial'},
                    help="sampling method ('Random','CoreSet','CoreSetMIP','Discriminative','DiscriminativeLearned','DiscriminativeAE','DiscriminativeStochastic','Uncertainty','Bayesian','UncertaintyEntropy','BayesianEntropy','EGL','Adversarial')")
-    p.add_argument('experiment_folder', type=str,
-                   help="folder where the experiment results will be saved")
+    p.add_argument('experiment_folder', type=str, help="folder where the experiment results will be saved")
     p.add_argument('--method2', '-method2', type=str,
                    choices={None,'Random','CoreSet','CoreSetMIP','Discriminative','DiscriminativeLearned','DiscriminativeAE','DiscriminativeStochastic','Uncertainty','Bayesian','UncertaintyEntropy','BayesianEntropy','EGL','Adversarial'},
                    default=None,
                    help="second sampling method ('Random','CoreSet','CoreSetMIP','Discriminative','DiscriminativeLearned','DiscriminativeAE','DiscriminativeStochastic','Uncertainty','Bayesian','UncertaintyEntropy','BayesianEntropy','EGL','Adversarial')")
-    p.add_argument('--initial_idx_path', '-idx', type=str,
-                   default=None,
-                   help="path to a folder with a pickle file with the initial indices of the labeled set")
+    p.add_argument('--initial_idx_path', '-idx', type=str, default=None, help="path to a folder with a pickle file with the initial indices of the labeled set")
     p.add_argument('--gpu', '-gpu', type=int, default=2)
     args = p.parse_args()
     return args

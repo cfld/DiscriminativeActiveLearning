@@ -22,7 +22,7 @@ class DiscriminativeEarlyStopping(Callback):
     labeled set won't have a very high confidence.
     """
 
-    def __init__(self, monitor='acc', threshold=0.98, verbose=0):
+    def __init__(self, monitor='accuracy', threshold=0.98, verbose=0):
         super(Callback, self).__init__()
         self.monitor = monitor
         self.threshold = threshold
@@ -45,14 +45,14 @@ class DelayedModelCheckpoint(Callback):
     iterations to save time.
     """
 
-    def __init__(self, filepath, monitor='val_acc', delay=50, verbose=0, weights=False):
+    def __init__(self, filepath, monitor='val_accuracy', delay=50, verbose=0, weights=False):
 
         super(DelayedModelCheckpoint, self).__init__()
         self.monitor = monitor
         self.verbose = verbose
         self.filepath = filepath
         self.delay = delay
-        if self.monitor == 'val_acc':
+        if self.monitor == 'val_accuracy':
             self.best = -np.Inf
         else:
             self.best = np.Inf
@@ -61,9 +61,10 @@ class DelayedModelCheckpoint(Callback):
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
 
-        if self.monitor == 'val_acc':
+        if self.monitor == 'val_accuracy':
+
             current = logs.get(self.monitor)
-            if current >= self.best and epoch > self.delay:
+            if ((current >= self.best) and (epoch > self.delay)):
                 if self.verbose > 0:
                     print('\nEpoch %05d: %s improved from %0.5f to %0.5f,'
                           ' saving model to %s'
@@ -76,7 +77,7 @@ class DelayedModelCheckpoint(Callback):
                     self.model.save(self.filepath, overwrite=True)
         else:
             current = logs.get(self.monitor)
-            if current <= self.best and epoch > self.delay:
+            if ((current <= self.best) and (epoch > self.delay)):
                 if self.verbose > 0:
                     print('\nEpoch %05d: %s improved from %0.5f to %0.5f,'
                           ' saving model to %s'

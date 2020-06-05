@@ -212,7 +212,7 @@ class AdversarialSampling(QueryMethod):
         keras_wrapper = KerasModelWrapper(self.model)
         sess = K.get_session()
         deep_fool = DeepFool(keras_wrapper, sess=sess)
-        deep_fool_params = {'over_shoot': 0.02,
+        deep_fool_params = {'overshoot': 0.02,
                             'clip_min': 0.,
                             'clip_max': 1.,
                             'nb_candidate': Y_train.shape[1],
@@ -841,4 +841,13 @@ class CombinedSampling(QueryMethod):
         self.model = new_model
         self.method1.update_model(new_model)
         self.method2.update_model(new_model)
+
+
+
+
+
+
+
+
+
 
