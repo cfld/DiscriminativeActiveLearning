@@ -2,13 +2,19 @@
 The main file which runs our active learning experiments. The experiment results are saved in pickle files that we later
 analyze over many experiments to produce the plots in our blog.
 """
+import numpy as np
+import pandas as pd
 
+import json
+import datetime
 import pickle
 import os
 import sys
 import argparse
 from keras.utils import to_categorical
-from sklearn.datasets import load_boston, load_diabetes
+#from sklearn.datasets import load_boston, load_diabetes
+from sklearn.model_selection import train_test_split
+
 
 from models import *
 from query_methods import *
@@ -16,7 +22,7 @@ from query_methods import *
 def parse_input():
     p = argparse.ArgumentParser()
     p.add_argument('experiment_index', type=int, help="index of current experiment")
-    p.add_argument('data_type', type=str, choices={'mnist', 'cifar10', 'cifar100'}, help="data type (mnist/cifar10/cifar100)")
+    p.add_argument('data_type', type=str, choices={'mnist', 'cifar10', 'cifar100', 'locust'}, help="data type (mnist/cifar10/cifar100)")
     p.add_argument('batch_size', type=int, help="active learning batch size")
     p.add_argument('initial_size', type=int, help="initial sample size for active learning")
     p.add_argument('iterations', type=int, help="number of active learning batches to sample")
@@ -52,6 +58,43 @@ def load_batch(fpath, label_key='labels'):
     data = data.reshape(data.shape[0], 3, 32, 32)
     return data, labels
 
+
+def get_ethiopia_embs(embs_path, labs_path, paths_path):
+
+    import ee
+    from shapely import geometry
+    from polygon_geohasher.polygon_geohasher import polygon_to_geohashes
+    import geohash
+
+    ee.Initialize()
+
+    # Get Raw Embeddings, labels, info
+    X = np.load(embs_path)
+    y = np.load(labs_path)
+    paths = np.load(paths_path)
+    Xn = X / np.sqrt((X ** 2).sum(axis=-1, keepdims=True))
+
+    # Get geohash and date information from the filenames
+    df = pd.DataFrame([{'idx': idx,
+                        'hash': p[-20:-15],
+                        'date': p[-14:-4],
+                        'lat': geohash.decode(p[-20:-15])[0],
+                        'lon': geohash.decode(p[-20:-15])[1]}
+                       for idx, p in enumerate(paths)])
+    df['y'] = y
+
+    # For ethiopia, ensure that only data from within ethiopia is used via geohashing
+    country = json.load(open('/home/ebarnett/naip_collect/geojson/countries/ETH.geo.json'))['features'][0]
+    polygon = ee.Geometry.Polygon(country['geometry']['coordinates'])
+
+    polygon = geometry.shape(polygon.toGeoJSON())
+    geohashes = sorted(list(polygon_to_geohashes(polygon, precision=5, inner=True)))
+
+    df = df[df['hash'].isin(geohashes)]
+    Xn, y = Xn[list(df.index), :], y[list(df.index)]
+    df = df.reset_index()
+
+    return Xn, y, df
 
 def load_mnist():
     """
@@ -208,19 +251,24 @@ if __name__ == '__main__':
         else:
             input_shape = (3, 32, 32)
         evaluation_function = train_cifar100_model
+    if args.data_type == 'locust':
+        #(X_train, Y_train), (X_test, Y_test) = load_mnist()
+        num_labels = 2
+        input_shape = (2048,)
+        evaluation_function = train_locust_model
 
     # make categorical:
-    Y_train = to_categorical(Y_train)
-    Y_test = to_categorical(Y_test)
+    #Y_train = to_categorical(Y_train)
+    #Y_test = to_categorical(Y_test)
 
-    # load the indices:
-    if args.initial_idx_path is not None:
-        idx_path = os.path.join(args.initial_idx_path, '{exp}_{size}_{data}.pkl'.format(exp=args.experiment_index, size=args.initial_size, data=args.data_type))
-        with open(idx_path, 'rb') as f:
-            labeled_idx = pickle.load(f)
-    else:
-        print("No Initial Indices Found - Drawing Random Indices...")
-        labeled_idx = np.random.choice(X_train.shape[0], args.initial_size, replace=False)
+    # # load the indices:
+    # if args.initial_idx_path is not None:
+    #     idx_path = os.path.join(args.initial_idx_path, '{exp}_{size}_{data}.pkl'.format(exp=args.experiment_index, size=args.initial_size, data=args.data_type))
+    #     with open(idx_path, 'rb') as f:
+    #         labeled_idx = pickle.load(f)
+    # else:
+    #     print("No Initial Indices Found - Drawing Random Indices...")
+    #     labeled_idx = np.random.choice(X_train.shape[0], args.initial_size, replace=False)
 
     # set the first query method:
     if args.method == 'Random':
@@ -296,10 +344,12 @@ if __name__ == '__main__':
     if not os.path.isdir(os.path.join(args.experiment_folder, 'models')):
         os.mkdir(os.path.join(args.experiment_folder, 'models'))
     model_folder = os.path.join(args.experiment_folder, 'models')
+
     if method2 is None:
         checkpoint_path = os.path.join(model_folder, '{alg}_{datatype}_{init}_{batch_size}_{idx}.hdf5'.format(
             alg=args.method, datatype=args.data_type, batch_size=args.batch_size, init=args.initial_size, idx=args.experiment_index
         ))
+        print("CHECKPOINT", checkpoint_path)
     else:
         checkpoint_path = os.path.join(model_folder, '{alg}_{alg2}_{datatype}_{init}_{batch_size}_{idx}.hdf5'.format(
             alg=args.method, alg2=args.method2, datatype=args.data_type, batch_size=args.batch_size, init=args.initial_size, idx=args.experiment_index
@@ -309,6 +359,7 @@ if __name__ == '__main__':
     if not os.path.isdir(os.path.join(args.experiment_folder, 'results')):
         os.mkdir(os.path.join(args.experiment_folder, 'results'))
     results_folder = os.path.join(args.experiment_folder, 'results')
+
     if method2 is None:
         results_path = os.path.join(results_folder, '{alg}_{datatype}_{init}_{batch_size}_{idx}.pkl'.format(
             alg=args.method, datatype=args.data_type, batch_size=args.batch_size, init=args.initial_size, idx=args.experiment_index
@@ -328,24 +379,65 @@ if __name__ == '__main__':
             alg=args.method, alg2=args.method2, datatype=args.data_type, batch_size=args.batch_size, init=args.initial_size, idx=args.experiment_index
         ))
 
+
+    # Hyperparams
+    d = 20  # number of days for each section
+
+    N = 100  # Batch of labels available after each step
+
+    T = 10 # number of time steps
+
+    t_0 = datetime.datetime.strptime('2019-08-01', "%Y-%m-%d")  # + datetime.timedelta(days=30 * i)).date()
+
+    # Get data and create datasets
+    Xn, y, df = get_ethiopia_embs(embs_path  = '/home/ebarnett/moco/query/embs.npy',
+                                  labs_path  = '/home/ebarnett/moco/query/labs.npy',
+                                  paths_path = '/home/ebarnett/moco/query/paths.npy')
+
+    X_trn, X_val, y_trn, y_val, = train_test_split(Xn, y,
+                                                   train_size=.8,
+                                                   stratify=y,
+                                                   random_state=3)
+
+    X_batches = []
+    y_batches = []
+    for i in range(10):
+        t_a = (t_0 + datetime.timedelta(days=d * i)).date()
+        t_b = (t_0 + datetime.timedelta(days=d * (i + 1))).date()
+
+        idx_ = list(df.index[(df.date >= str(t_a)) & (df.date < str(t_b))])
+
+        X_batches.append(Xn[idx_])
+        y_batches.append(y[idx_])
+
+
     # run the experiment:
     accuracies = []
     entropies = []
     label_distributions = []
     queries = []
-    acc, model = evaluate_sample(evaluation_function, X_train[labeled_idx,:], Y_train[labeled_idx], X_test, Y_test, checkpoint_path)
+
+    labeled_idx = np.arange(X_trn.shape[0])
+
+    acc, model = evaluate_sample(evaluation_function, X_trn, to_categorical(y_trn), Xn, to_categorical(y), checkpoint_path)
+
     query_method.update_model(model)
     accuracies.append(acc)
+
     print("Test Accuracy Is " + str(acc))
-    for i in range(args.iterations):
+    for i in range(T):
+
+        X_trn = np.concatenate((X_trn, X_batches[i]), axis=0)
+        y_trn = np.concatenate((y_trn, y_batches[i]), axis=0)
+
 
         # get the new indices from the algorithm
         old_labeled = np.copy(labeled_idx)
-        labeled_idx = query_method.query(X_train, Y_train, labeled_idx, args.batch_size)
+        labeled_idx = query_method.query(X_trn, to_categorical(y_trn), labeled_idx, args.batch_size)
 
         # calculate and store the label entropy:
         new_idx = labeled_idx[np.logical_not(np.isin(labeled_idx, old_labeled))]
-        new_labels = Y_train[new_idx]
+        new_labels = y_trn[new_idx]
         new_labels /= np.sum(new_labels)
         new_labels = np.sum(new_labels, axis=0)
         entropy = -np.sum(new_labels * np.log(new_labels + 1e-10))
@@ -354,7 +446,7 @@ if __name__ == '__main__':
         queries.append(new_idx)
 
         # evaluate the new sample:
-        acc, model = evaluate_sample(evaluation_function, X_train[labeled_idx], Y_train[labeled_idx], X_test, Y_test, checkpoint_path)
+        acc, model = evaluate_sample(evaluation_function, X_trn[labeled_idx], to_categorical(y_trn[labeled_idx]), X_batches[i], to_categorical(y_batches[i]), checkpoint_path)
         query_method.update_model(model)
         accuracies.append(acc)
         print("Test Accuracy Is " + str(acc))

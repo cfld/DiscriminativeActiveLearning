@@ -5,14 +5,14 @@ model for MNIST, a VGG model for CIFAR and a multilayer perceptron model for dic
 
 import numpy as np
 
-from keras.callbacks import Callback
-from keras.models import Sequential, Model
-from keras.layers import Dense, Dropout, Flatten, Activation, Input, UpSampling2D
-from keras.layers import Conv2D, MaxPooling2D, BatchNormalization
-from keras import optimizers
-from keras import regularizers
-from keras import backend as K
-from keras.models import load_model
+from tensorflow.keras.callbacks import Callback
+from tensorflow.keras.models import Sequential, Model
+from tensorflow.keras.layers import Dense, Dropout, Flatten, Activation, Input, UpSampling2D
+from tensorflow.keras.layers import Conv2D, MaxPooling2D, MaxPooling1D, BatchNormalization
+from tensorflow.keras import optimizers
+from tensorflow.keras import regularizers
+from tensorflow.keras import backend as K
+#from keras.models import load_model
 from keras.utils import to_categorical, multi_gpu_model
 
 class DiscriminativeEarlyStopping(Callback):
@@ -45,14 +45,14 @@ class DelayedModelCheckpoint(Callback):
     iterations to save time.
     """
 
-    def __init__(self, filepath, monitor='val_accuracy', delay=50, verbose=0, weights=False):
+    def __init__(self, filepath, monitor='val_acc', delay=1, verbose=0, weights=False):
 
         super(DelayedModelCheckpoint, self).__init__()
         self.monitor = monitor
         self.verbose = verbose
         self.filepath = filepath
         self.delay = delay
-        if self.monitor == 'val_accuracy':
+        if self.monitor == 'val_acc':
             self.best = -np.Inf
         else:
             self.best = np.Inf
@@ -61,7 +61,8 @@ class DelayedModelCheckpoint(Callback):
     def on_epoch_end(self, epoch, logs=None):
         logs = logs or {}
 
-        if self.monitor == 'val_accuracy':
+
+        if self.monitor == 'val_acc':
 
             current = logs.get(self.monitor)
             if ((current >= self.best) and (epoch > self.delay)):
@@ -73,8 +74,10 @@ class DelayedModelCheckpoint(Callback):
                 self.best = current
                 if self.weights:
                     self.model.save_weights(self.filepath, overwrite=True)
+                    print("THIS 3")
                 else:
                     self.model.save(self.filepath, overwrite=True)
+                    print("THIS 4")
         else:
             current = logs.get(self.monitor)
             if ((current <= self.best) and (epoch > self.delay)):
@@ -86,8 +89,10 @@ class DelayedModelCheckpoint(Callback):
                 self.best = current
                 if self.weights:
                     self.model.save_weights(self.filepath, overwrite=True)
+                    print("THIS 1")
                 else:
                     self.model.save(self.filepath, overwrite=True)
+                    print("THIS 2")
 
 
 
@@ -128,6 +133,21 @@ def get_discriminative_model(input_shape):
         model.add(Dense(width, activation='relu'))
         model.add(Dense(width, activation='relu'))
         model.add(Dense(2, activation='softmax', name='softmax'))
+
+    return model
+
+def get_mlp_model(input_shape, labels=2):
+
+    model = Sequential()
+    model.add(Dense(512, input_dim=input_shape))
+    model.add(BatchNormalization())
+    model.add(Activation('relu'))
+    model.add(Dropout(0.1))
+    model.add(Dense(512, name='embedding'))
+    model.add(BatchNormalization())
+    model.add(Activation('relu'))
+    model.add(Dropout(0.1))
+    model.add(Dense(labels, activation='softmax', name='softmax'))
 
     return model
 
@@ -316,7 +336,7 @@ def train_mnist_model(X_train, Y_train, X_validation, Y_validation, checkpoint_p
     model = get_LeNet_model(input_shape=input_shape, labels=10)
     optimizer = optimizers.Adam()
     model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
-    callbacks = [DelayedModelCheckpoint(filepath=checkpoint_path, verbose=1, weights=True)]
+    callbacks = [DelayedModelCheckpoint(filepath=checkpoint_path, verbose=2, weights=True)]
 
     if gpu > 1:
         gpu_model = ModelMGPU(model, gpus = gpu)
@@ -347,6 +367,49 @@ def train_mnist_model(X_train, Y_train, X_validation, Y_validation, checkpoint_p
                   verbose=2)
         model.load_weights(checkpoint_path)
         return model
+
+def train_locust_model(X_train, Y_train, X_validation, Y_validation, checkpoint_path, gpu=1):
+    """
+    A function that trains and returns a mlp model for the locust problem.
+    """
+    model = get_mlp_model(input_shape=2048, labels=2)
+
+    optimizer = optimizers.Adam()
+    model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
+    callbacks = [DelayedModelCheckpoint(filepath=checkpoint_path, verbose=1, weights=True)]
+
+    if gpu > 1:
+        gpu_model = ModelMGPU(model, gpus = gpu)
+        gpu_model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
+        gpu_model.fit(X_train, Y_train,
+                      epochs=150,
+                      batch_size=32,
+                      shuffle=True,
+                      validation_data=(X_validation, Y_validation),
+                      callbacks=callbacks,
+                      verbose=2)
+
+        del model
+        del gpu_model
+
+        model = get_LeNet_model(input_shape=input_shape, labels=10)
+        model.compile(loss='categorical_crossentropy', optimizer=optimizer, metrics=['accuracy'])
+        model.load_weights(checkpoint_path)
+        return model
+
+    else:
+        print("STARTING TRAIN")
+        model.fit(X_train, Y_train,
+                  epochs=10,
+                  batch_size=32,
+                  shuffle=True,
+                  validation_data=(X_validation, Y_validation),
+                  callbacks=callbacks,
+                  verbose=2)
+        model.load_weights(checkpoint_path)
+        return model
+
+
 
 
 def train_cifar10_model(X_train, Y_train, X_validation, Y_validation, checkpoint_path, gpu=1):
