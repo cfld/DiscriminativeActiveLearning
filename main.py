@@ -2,28 +2,35 @@
 The main file which runs our active learning experiments. The experiment results are saved in pickle files that we later
 analyze over many experiments to produce the plots in our blog.
 """
-
+import warnings
+warnings.filterwarnings('ignore',category=FutureWarning)
 import pickle
+import random
 import os
 import sys
 import argparse
-from keras.utils import to_categorical
+import tensorflow as tf
+to_categorical = tf.keras.utils.to_categorical
+
 from sklearn.datasets import load_boston, load_diabetes
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder
+import numpy as np
 
 from models import *
 from query_methods import *
 
 def parse_input():
     p = argparse.ArgumentParser()
-    p.add_argument('experiment_index', type=int, help="index of current experiment")
-    p.add_argument('data_type', type=str, choices={'mnist', 'cifar10', 'cifar100'}, help="data type (mnist/cifar10/cifar100)")
-    p.add_argument('batch_size', type=int, help="active learning batch size")
-    p.add_argument('initial_size', type=int, help="initial sample size for active learning")
-    p.add_argument('iterations', type=int, help="number of active learning batches to sample")
-    p.add_argument('method', type=str,
+    p.add_argument('--experiment_index', type=int, help="index of current experiment")
+    p.add_argument('--data_type', type=str, choices={'mnist', 'cifar10', 'cifar100', 'resisc_features'}, help="data type (mnist/cifar10/cifar100)")
+    p.add_argument('--batch_size', type=int, help="active learning batch size")
+    p.add_argument('--initial_size', type=int, help="initial sample size for active learning")
+    p.add_argument('--iterations', type=int, help="number of active learning batches to sample")
+    p.add_argument('--method', type=str,
                    choices={'Random','CoreSet','CoreSetMIP','Discriminative','DiscriminativeLearned','DiscriminativeAE','DiscriminativeStochastic','Uncertainty','Bayesian','UncertaintyEntropy','BayesianEntropy','EGL','Adversarial'},
                    help="sampling method ('Random','CoreSet','CoreSetMIP','Discriminative','DiscriminativeLearned','DiscriminativeAE','DiscriminativeStochastic','Uncertainty','Bayesian','UncertaintyEntropy','BayesianEntropy','EGL','Adversarial')")
-    p.add_argument('experiment_folder', type=str, help="folder where the experiment results will be saved")
+    p.add_argument('--experiment_folder', type=str, help="folder where the experiment results will be saved")
     p.add_argument('--method2', '-method2', type=str,
                    choices={None,'Random','CoreSet','CoreSetMIP','Discriminative','DiscriminativeLearned','DiscriminativeAE','DiscriminativeStochastic','Uncertainty','Bayesian','UncertaintyEntropy','BayesianEntropy','EGL','Adversarial'},
                    default=None,
@@ -150,6 +157,25 @@ def load_cifar_100(label_mode='fine'):
 
     return (x_train, y_train), (x_test, y_test)
 
+def load_resisc():
+    Xn      = np.load('/home/ebarnett/DiscriminativeActiveLearning/featurize/resisc/embs.npy')
+    y_orig  = np.load('/home/ebarnett/DiscriminativeActiveLearning/featurize/resisc/labs.npy')
+
+    le = LabelEncoder()
+    le.fit(y_orig)
+    y = le.transform(y_orig)
+
+    x_train, x_test, y_train, y_test, = train_test_split(Xn, y, train_size=.5, stratify=y,random_state=3)
+
+    perm = np.random.permutation(x_train.shape[0])
+    x_train = x_train[perm]
+    y_train = y_train[perm]
+
+    print(x_train.shape)
+    print(x_test.shape)
+    return (x_train, y_train), (x_test, y_test)
+
+
 
 def evaluate_sample(training_function, X_train, Y_train, X_test, Y_test, checkpoint_path):
     """
@@ -208,6 +234,12 @@ if __name__ == '__main__':
         else:
             input_shape = (3, 32, 32)
         evaluation_function = train_cifar100_model
+    if args.data_type == 'resisc_features':
+        (X_train, Y_train), (X_test, Y_test) = load_resisc()
+        num_labels = 44
+        input_shape = (2048,)
+        evaluation_function = train_resisc_model
+
 
     # make categorical:
     Y_train = to_categorical(Y_train)
@@ -328,6 +360,9 @@ if __name__ == '__main__':
             alg=args.method, alg2=args.method2, datatype=args.data_type, batch_size=args.batch_size, init=args.initial_size, idx=args.experiment_index
         ))
 
+    np.random.seed(3)
+    random.seed(3)
+    tf.set_random_seed(3)
     # run the experiment:
     accuracies = []
     entropies = []
@@ -336,6 +371,7 @@ if __name__ == '__main__':
     acc, model = evaluate_sample(evaluation_function, X_train[labeled_idx,:], Y_train[labeled_idx], X_test, Y_test, checkpoint_path)
     query_method.update_model(model)
     accuracies.append(acc)
+    print("METHOD: ", args.method)
     print("Test Accuracy Is " + str(acc))
     for i in range(args.iterations):
 
@@ -357,7 +393,7 @@ if __name__ == '__main__':
         acc, model = evaluate_sample(evaluation_function, X_train[labeled_idx], Y_train[labeled_idx], X_test, Y_test, checkpoint_path)
         query_method.update_model(model)
         accuracies.append(acc)
-        print("Test Accuracy Is " + str(acc))
+        print("Iteration", i, "Test Accuracy Is " + str(acc))
 
     # save the results:
     with open(results_path, 'wb') as f:

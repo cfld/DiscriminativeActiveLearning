@@ -4,6 +4,11 @@ the blog that accompanies this code.
 """
 
 import gc
+
+import warnings
+warnings.filterwarnings('ignore',category=FutureWarning)
+import tensorflow as tf
+
 from scipy.spatial import distance_matrix
 
 from keras.models import Model
@@ -347,7 +352,7 @@ class DiscriminativeAutoencoderSampling(QueryMethod):
                                  epochs=200,
                                  batch_size=256,
                                  shuffle=True,
-                                 verbose=2)
+                                 verbose=0)
             encoder = Model(self.autoencoder.input, self.autoencoder.get_layer('embedding').input)
             self.embedding = encoder.predict(X_train.reshape((-1,28,28,1)), batch_size=1024)
 
